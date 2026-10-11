@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Task Worker</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1c2330;--mut:#667085;--bd:#dfe3ea;--acc:#2f5bea;--ok:#127a46;--bad:#b42318;--warn:#a15c07}
+@media(prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b2029;--fg:#e8ebf1;--mut:#9aa4b5;--bd:#2c3442;--acc:#7d9bff;--ok:#4cc38a;--bad:#ff7b72;--warn:#e3b341}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
+header{padding:12px 20px;border-bottom:1px solid var(--bd);display:flex;gap:12px;align-items:center}
+header h1{font-size:16px;margin:0}.pill{padding:2px 10px;border-radius:99px;border:1px solid var(--bd);font-size:12px;color:var(--mut)}
+.pill.running{color:var(--acc);border-color:var(--acc)}.pill.finished{color:var(--ok);border-color:var(--ok)}.pill.failed,.pill.stopped{color:var(--bad);border-color:var(--bad)}
+main{display:grid;grid-template-columns:minmax(380px,1fr) minmax(380px,1fr);gap:16px;padding:16px 20px;height:calc(100vh - 54px)}
+@media(max-width:900px){main{grid-template-columns:1fr;height:auto}}
+.col{display:flex;flex-direction:column;gap:12px;min-height:0}.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px}
+textarea,input,select{width:100%;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px}
+textarea{resize:vertical;min-height:64px}.row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}.row>*{width:auto}
+button{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:8px;padding:7px 14px;cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button.danger{color:var(--bad)}button:disabled{opacity:.5;cursor:default}
+.chips button{font-size:12px;padding:3px 9px;color:var(--mut)}
+#feed{flex:1;overflow:auto;min-height:200px}.ev{padding:6px 0;border-bottom:1px solid var(--bd);word-break:break-word}.ev:last-child{border:0}
+.ev.thought{color:var(--fg)}.ev.call{color:var(--acc);font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+.ev.note{color:var(--warn)}.ev.error{color:var(--bad)}.ev.memory{color:var(--mut)}details summary{cursor:pointer;color:var(--mut);font-size:12.5px}
+pre{white-space:pre-wrap;margin:6px 0 0;font:12px/1.4 ui-monospace,Consolas,monospace;color:var(--mut)}
+.gate{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--card))}
+iframe{flex:1;width:100%;min-height:300px;border:1px solid var(--bd);border-radius:10px;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:12.5px}td,th{border-bottom:1px solid var(--bd);padding:4px 6px;text-align:left}
+.mut{color:var(--mut);font-size:12px}.hide{display:none}.banner{background:var(--warn);color:#000;padding:6px 10px;border-radius:8px;font-size:12px}
+</style></head><body>
+<header><h1>AI Task Worker</h1><span id="status" class="pill">idle</span><span class="mut" id="rundir"></span></header>
+<main>
+<div class="col">
+  <div class="card">
+    <textarea id="task">Find the latest invoice from Globex Corp in the vendor portal, enter it as a bill in the ERP, and confirm once done.</textarea>
+    <div class="chips row"><span class="mut">Try:</span>
+      <button data-t="Read the finance inbox note and do what it asks.">inbox note</button>
+      <button data-t="Find the latest invoice from Initech LLC in the vendor portal and enter it as a bill in the ERP.">Initech</button>
+      <button data-t="Find the latest invoice from Acme Inc in the vendor portal and enter it as a bill in the ERP.">unknown vendor</button></div>
+    <div class="row">
+      <select id="provider"><option value="gemini">Gemini</option><option value="anthropic">Claude</option><option value="replay">Scripted replay (no AI)</option></select>
+      <input id="model" placeholder="model (optional, e.g. gemini-3.8-flash)" style="flex:1;min-width:160px">
+    </div>
+    <div class="row"><span class="mut">Max model calls</span><input id="maxcalls" type="number" min="1" placeholder="no cap" style="width:90px">
+      <label class="mut"><input type="checkbox" id="noverify" style="width:auto"> skip extra verifier call</label></div>
+    <div class="row"><label class="mut"><input type="checkbox" id="auto" style="width:auto"> auto-approve gated actions</label>
+      <span style="flex:1"></span><button id="stop" class="danger" disabled>Stop</button><button id="run" class="primary">Run</button></div>
+    <div id="replaywarn" class="banner hide" style="margin-top:8px">Scripted replay is NOT AI. It plays a fixed script to preview this UI. Do not present it as the agent.</div>
+  </div>
+  <div id="gate" class="card gate hide"><b id="gatetitle"></b><div id="gatetext" style="margin:6px 0"></div>
+    <div id="gateask" class="row hide"><input id="askinput" style="flex:1"><button id="asksend" class="primary">Send</button></div>
+    <div id="gatebtns" class="row"><button id="yes" class="primary">Approve</button><button id="no" class="danger">Deny</button></div></div>
+  <div id="result" class="card hide"></div>
+  <div class="card" id="feed"><div class="mut" id="empty">Agent activity will appear here.</div></div>
+</div>
+<div class="col">
+  <div class="row" style="margin:0"><b>Simulated company</b><span style="flex:1"></span>
+    <button id="goerp">ERP bills</button><button id="goportal">Vendor portal</button><button id="goadmin">Add test data</button>
+    <label class="mut"><input type="checkbox" id="autoref" checked style="width:auto"> auto-refresh</label></div>
+  <iframe id="frame" title="simulated company"></iframe>
+  <div class="card"><b>Ground truth: ERP database</b> <span class="mut">(what is really stored; the agent cannot see this)</span>
+    <table id="bills"></table></div>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
+let since=0,runId=null,base=null,frameUrl=null;
+function setFrame(u){frameUrl=u;$('frame').src=u}
+function addEv(e){
+  $('empty').classList.add('hide');const d=el('div','ev '+e.kind);
+  if(e.kind==='thought')d.textContent='💭 '+e.text;
+  else if(e.kind==='call')d.textContent='▶ '+e.name+'('+JSON.stringify(e.input)+')';
+  else if(e.kind==='observation'){const t=e.text,det=el('details');det.appendChild(el('summary','',t.split('\n')[0].slice(0,110)+(t.length>110?' …':'')));det.appendChild(el('pre','',t));d.appendChild(det)}
+  else if(e.kind==='note')d.textContent='⚠ '+e.text;
+  else if(e.kind==='memory')d.textContent='📌 '+e.key+' = '+e.value;
+  else if(e.kind==='approval')d.textContent='🔒 Approval requested: '+e.text;
+  else if(e.kind==='ask')d.textContent='❓ Agent asks: '+e.question;
+  else if(e.kind==='answer')d.textContent='💬 You: '+e.text;
+  else if(e.kind==='error')d.textContent='✖ '+e.text;
+  else if(e.kind==='result'){showResult(e);return}
+  else return;
+  $('feed').appendChild(d);$('feed').scrollTop=1e9;
+}
+function showResult(r){
+  const c=$('result');c.classList.remove('hide');c.replaceChildren();
+  c.appendChild(el('b','',(r.status==='done'?'✅ ':'⚠ ')+'Status: '+r.status+(r.verified?' (independently verified)':' (not independently verified)')+' · '+r.steps+' steps · '+r.llm_calls+' model calls'));
+  c.appendChild(el('p','',r.summary));
+  if(r.evidence&&r.evidence.length){c.appendChild(el('div','mut','Evidence'));const u=el('ul');r.evidence.forEach(x=>u.appendChild(el('li','',x)));c.appendChild(u)}
+}
+function render(s){
+  if(s.run_id!==runId){runId=s.run_id;since=0;[...$('feed').querySelectorAll('.ev')].forEach(x=>x.remove());$('empty').classList.remove('hide');$('result').classList.add('hide')}
+  if(s.sandbox_url!==base){base=s.sandbox_url;setFrame(base+'/erp/bills')}
+  const st=$('status');st.textContent=s.status;st.className='pill '+s.status;$('rundir').textContent=s.run_dir||'';
+  $('run').disabled=s.status==='running';$('stop').disabled=s.status!=='running';
+  const hadObs=s.events.some(e=>e.kind==='observation');
+  s.events.forEach(addEv);since=s.next;
+  const g=$('gate');
+  if(s.pending){g.classList.remove('hide');const ap=s.pending.type==='approve';
+    $('gatetitle').textContent=ap?'🔒 Approval needed':'❓ The agent needs your input';$('gatetext').textContent=s.pending.text;
+    $('gatebtns').classList.toggle('hide',!ap);$('gateask').classList.toggle('hide',ap)}else g.classList.add('hide');
+  const t=$('bills');t.replaceChildren();
+  const hdr=el('tr');['Invoice','Vendor','Amount','Due'].forEach(h=>hdr.appendChild(el('th','',h)));t.appendChild(hdr);
+  if(!s.bills.length){const r=el('tr');const c=el('td','mut','No bills stored');c.colSpan=4;r.appendChild(c);t.appendChild(r)}
+  s.bills.forEach(b=>{const r=el('tr');[b.invoice_number,b.vendor,b.amount+' '+b.currency,b.due_date].forEach(x=>r.appendChild(el('td','',x)));t.appendChild(r)});
+  if(hadObs&&$('autoref').checked&&frameUrl)$('frame').src=frameUrl;
+}
+async function poll(){try{const r=await fetch('/api/state?since='+since);render(await r.json())}catch(e){}setTimeout(poll,700)}
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
+$('run').onclick=async()=>{const r=await post('/api/run',{task:$('task').value,provider:$('provider').value,model:$('model').value.trim(),auto_approve:$('auto').checked,max_calls:$('maxcalls').value||null,verifier:!$('noverify').checked});if(!r.ok)alert((await r.json()).error)};
+$('stop').onclick=()=>post('/api/stop');$('yes').onclick=()=>post('/api/answer',{value:true});$('no').onclick=()=>post('/api/answer',{value:false});
+$('asksend').onclick=()=>{post('/api/answer',{value:$('askinput').value});$('askinput').value=''};
+$('goerp').onclick=()=>setFrame(base+'/erp/bills');$('goportal').onclick=()=>setFrame(base+'/portal/invoices');$('goadmin').onclick=()=>setFrame(base+'/admin');
+$('provider').onchange=()=>$('replaywarn').classList.toggle('hide',$('provider').value!=='replay');
+document.querySelectorAll('.chips button').forEach(b=>b.onclick=()=>$('task').value=b.dataset.t);
+poll();
+</script></body></html>

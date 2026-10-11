@@ -1,0 +1,14 @@
+{
+  "task": "Find all credit notes",
+  "status": "done",
+  "summary": "Found 1 credit note in the vendor portal: CN-7001 from Hooli Inc, issued on June 8, 2026 for 400.00 USD.",
+  "evidence": [
+    "CN-7001 (Hooli Inc, June 8, 2026, 400.00 USD, Status: Open)"
+  ],
+  "verified": true,
+  "steps": 8,
+  "memory": {
+    "credit_note": "CN-7001 (Hooli Inc, June 8, 2026, 400.00 USD)"
+  },
+  "llm_calls": 9
+}
