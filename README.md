@@ -8,7 +8,7 @@ Demo task (included simulated company):
 
 > *Find the latest invoice from Globex Corp in the vendor portal, enter it as a bill in the ERP, and confirm once done.*
 
-- **Author:** [YOUR NAME]
+- **Author:** Satyam
 
 
 ---
